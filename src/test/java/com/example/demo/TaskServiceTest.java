@@ -1,5 +1,7 @@
 package com.example.demo;
 
+import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 import com.example.demo.DTO.TaskDTO;
 import com.example.demo.Entity.Task;
 import com.example.demo.Entity.TaskStatus;
@@ -7,161 +9,152 @@ import com.example.demo.Repository.TaskRepository;
 import com.example.demo.Service.TaskService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
-
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDateTime;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+@ExtendWith(MockitoExtension.class)
+public class TaskServiceTest {
 
-class TaskServiceTest {
-
+    @Mock
     private TaskRepository taskRepository;
+
+    @InjectMocks
     private TaskService taskService;
 
+    private Task task;
+    private TaskDTO taskDTO;
+
     @BeforeEach
-    void setUp() {
-        taskRepository = mock(TaskRepository.class);
-        taskService = new TaskService();
-        ReflectionTestUtils.setField(taskService, "taskRepository", taskRepository);
+    public void setUp() {
+        task = new Task();
+        task.setTitle("My Task");
+        task.setDescription("Task Description");
+        task.setDueDate(LocalDateTime.now());
+        task.setStatus(TaskStatus.DONE);
+
+        taskDTO = new TaskDTO();
+        taskDTO.setTitle("My Task");
+        taskDTO.setDescription("Task Description");
+        taskDTO.setDueDate(LocalDateTime.now());
+        taskDTO.setStatus(TaskStatus.DONE);
     }
 
     @Test
-    void testGetAllTasks() {
-        Task task1 = new Task();
-        task1.setId(1L);
-        task1.setTitle("Title 1");
-        task1.setDescription("Description 1");
-        task1.setDueDate(LocalDateTime.now());
-        task1.setStatus(TaskStatus.TODO);
+    public void testGetAllTasks() {
+        when(taskRepository.findAll()).thenReturn(Collections.singletonList(task));
 
-        when(taskRepository.findAll()).thenReturn(Arrays.asList(task1));
-
-        var tasks = taskService.getAllTasks();
+        List<TaskDTO> tasks = taskService.getAllTasks();
 
         assertEquals(1, tasks.size());
-        assertEquals("Title 1", tasks.get(0).getTitle());
-        verify(taskRepository).findAll();
+        assertEquals(task.getTitle(), tasks.get(0).getTitle());
+
+        verify(taskRepository, times(1)).findAll();
     }
 
     @Test
-    void testGetTaskById() {
-        Task task = new Task();
-        task.setId(1L);
-        task.setTitle("Title 1");
+    public void testGetTaskByTitle_Success() {
+        when(taskRepository.findByTitle("My Task")).thenReturn(Optional.of(task));
 
-        when(taskRepository.findById(1L)).thenReturn(Optional.of(task));
+        TaskDTO foundTask = taskService.getTaskByTitle("My Task");
 
-        var result = taskService.getTaskById(1L);
+        assertEquals(task.getTitle(), foundTask.getTitle());
 
-        assertTrue(result.isPresent());
-        assertEquals("Title 1", result.get().getTitle());
+        verify(taskRepository, times(1)).findByTitle("My Task");
     }
 
     @Test
-    void testGetTaskById_NotFound() {
-        when(taskRepository.findById(2L)).thenReturn(Optional.empty());
+    public void testGetTaskByTitle_NotFound() {
+        when(taskRepository.findByTitle("Nonexistent Task")).thenReturn(Optional.empty());
 
-        var result = taskService.getTaskById(2L);
-
-        assertFalse(result.isPresent());
-    }
-
-    @Test
-    void testCreateTask() {
-        TaskDTO newTaskDto = new TaskDTO();
-        newTaskDto.setTitle("New Title");
-        newTaskDto.setDescription("New Description");
-        newTaskDto.setDueDate(LocalDateTime.now());
-        newTaskDto.setStatus(TaskStatus.TODO);
-
-        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
-            Task savedTask = invocation.getArgument(0);
-            savedTask.setId(1L);
-            return savedTask;
+        Exception exception = assertThrows(EntityNotFoundException.class, () -> {
+            taskService.getTaskByTitle("Nonexistent Task");
         });
 
-        var createdTask = taskService.createTask(newTaskDto);
+        assertEquals("Task not found", exception.getMessage());
 
-        assertNotNull(createdTask);
-        assertEquals(1L, createdTask.getId());
-        assertEquals("New Title", createdTask.getTitle());
-
-        verify(taskRepository).save(any(Task.class));
+        verify(taskRepository, times(1)).findByTitle("Nonexistent Task");
     }
 
     @Test
-    void testUpdateTask() {
-        Task existingTask = new Task();
-        existingTask.setId(1L);
-        existingTask.setTitle("Old Title");
-        existingTask.setDescription("Old Description");
-        existingTask.setDueDate(LocalDateTime.now());
-        existingTask.setStatus(TaskStatus.TODO);
+    public void testCreateTask() {
+        when(taskRepository.save(any(Task.class))).thenReturn(task);
 
-        when(taskRepository.findById(1L)).thenReturn(Optional.of(existingTask));
+        TaskDTO createdTask = taskService.createTask(taskDTO);
 
-        TaskDTO updatedDto = new TaskDTO();
-        updatedDto.setTitle("Updated Title");
-        updatedDto.setDescription("Updated Description");
-        updatedDto.setDueDate(LocalDateTime.now().plusDays(1));
-        updatedDto.setStatus(TaskStatus.DONE);
+        assertEquals(task.getTitle(), createdTask.getTitle());
 
-        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
-            Task savedTask = invocation.getArgument(0);
-            savedTask.setId(1L);
-            return savedTask;
+        verify(taskRepository, times(1)).save(any(Task.class));
+    }
+
+    @Test
+    public void testUpdateTaskByTitle_Success() {
+        when(taskRepository.findByTitle("My Task")).thenReturn(Optional.of(task));
+        when(taskRepository.save(any(Task.class))).thenReturn(task);
+
+        TaskDTO updatedTask = new TaskDTO();
+        updatedTask.setTitle("Updated Title");
+
+        TaskDTO result = taskService.updateTaskByTitle("My Task", updatedTask);
+
+        assertEquals(updatedTask.getTitle(), result.getTitle());
+
+        verify(taskRepository, times(1)).findByTitle("My Task");
+        verify(taskRepository, times(1)).save(any(Task.class));
+    }
+
+    @Test
+    public void testUpdateTaskByTitle_NotFound() {
+        when(taskRepository.findByTitle("Nonexistent Task")).thenReturn(Optional.empty());
+
+        Exception exception = assertThrows(EntityNotFoundException.class, () -> {
+            taskService.updateTaskByTitle("Nonexistent Task", taskDTO);
         });
 
-        var updatedTask = taskService.updateTask(1L, updatedDto);
+        assertEquals("Task not found", exception.getMessage());
 
-        assertNotNull(updatedTask);
-        assertEquals("Updated Title", updatedTask.getTitle());
-
-        assertEquals("Updated Description", existingTask.getDescription());
-
-        verify(taskRepository).save(existingTask);
+        verify(taskRepository, times(1)).findByTitle("Nonexistent Task");
     }
 
     @Test
-    void testUpdateTask_NotFound() {
+    public void testDeleteTaskByTitle_Success() {
+        when(taskRepository.findByTitle("My Task")).thenReturn(Optional.of(task));
 
-        when(taskRepository.findById(2L)).thenReturn(Optional.empty());
+        assertDoesNotThrow(() -> {
+            taskService.deleteTaskByTitle("My Task");
+        });
 
-        TaskDTO updatedDto = new TaskDTO();
-        updatedDto.setTitle("Updated Title");
-
-        var updatedResult = taskService.updateTask(2L, updatedDto);
-
-        assertNull(updatedResult);
+        verify(taskRepository, times(1)).delete(any(Task.class));
     }
 
     @Test
-    void testDeleteTask() {
-        Long idToDelete = 1L;
+    public void testDeleteTaskByTitle_NotFound() {
+        when(taskRepository.findByTitle("Nonexistent Task")).thenReturn(Optional.empty());
 
-        doNothing().when(taskRepository).deleteById(idToDelete);
+        Exception exception = assertThrows(EntityNotFoundException.class, () -> {
+            taskService.deleteTaskByTitle("Nonexistent Task");
+        });
 
-        taskService.deleteTask(idToDelete);
+        assertEquals("Task not found", exception.getMessage());
 
-        verify(taskRepository).deleteById(idToDelete);
+        verify(taskRepository, times(1)).findByTitle("Nonexistent Task");
     }
 
     @Test
-    void testFilterTasksByStatus() {
-        Task activeTask = new Task();
-        activeTask.setId(1L);
-        activeTask.setTitle("Active Task");
-        activeTask.setStatus(TaskStatus.TODO);
+    public void testFilterTasksByStatus() {
+        when(taskRepository.findByStatus(TaskStatus.DONE)).thenReturn(Collections.singletonList(task));
 
-        when(taskRepository.findByStatus(TaskStatus.TODO)).thenReturn(Arrays.asList(activeTask));
-
-        var filteredTasks = taskService.filterTasksByStatus(TaskStatus.TODO);
+        List<TaskDTO> filteredTasks = taskService.filterTasksByStatus(TaskStatus.DONE);
 
         assertEquals(1, filteredTasks.size());
-        assertEquals("Active Task", filteredTasks.get(0).getTitle());
+        assertEquals(task.getStatus(), filteredTasks.get(0).getStatus());
+
+        verify(taskRepository, times(1)).findByStatus(TaskStatus.DONE);
     }
 }
